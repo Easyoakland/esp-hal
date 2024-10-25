@@ -31,9 +31,12 @@ use esp_wifi_sys::include::{
     esp_eap_client_set_ttls_phase2_method,
     esp_eap_client_set_username,
     esp_eap_fast_config,
+    esp_wifi_ap_get_sta_list,
     esp_wifi_sta_enterprise_enable,
     wifi_pkt_rx_ctrl_t,
     wifi_scan_channel_bitmap_t,
+    wifi_sta_info_t,
+    wifi_sta_list_t,
     WIFI_PROTOCOL_11AX,
     WIFI_PROTOCOL_11B,
     WIFI_PROTOCOL_11G,
@@ -2232,6 +2235,52 @@ fn convert_ap_info(record: &include::wifi_ap_record_t) -> AccessPointInfo {
         auth_method: Some(AuthMethod::from_raw(record.authmode)),
     }
 }
+
+/// List of stations associated with the Soft-AP.
+/// These stations have not necessarily authenticated.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StaList(pub heapless::Vec<StaInfo, 15>);
+impl StaList {
+    /// Get STAs associated with soft-AP
+    pub fn get_sta_list() -> Result<Self, WifiError> {
+        let mut list = wifi_sta_list_t {
+            sta: [wifi_sta_info_t {
+                mac: Default::default(),
+                rssi: Default::default(),
+                _bitfield_align_1: Default::default(),
+                _bitfield_1: Default::default(),
+            }; 15],
+            num: 15,
+        };
+        unsafe { esp_wifi_result!(esp_wifi_ap_get_sta_list(&mut list)) }?;
+        Ok(Self(
+            // The `.min(15)` means this will not panic.
+            heapless::Vec::from_slice(&list.sta.map(StaInfo)[0..(list.num as usize).min(15)])
+                .unwrap(),
+        ))
+    }
+}
+
+/// Description of STA associated with AP
+#[derive(Clone, Copy)]
+pub struct StaInfo(pub wifi_sta_info_t);
+impl core::fmt::Debug for StaInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StaInfo")
+            .field("mac", &self.0.mac)
+            .field("rssi", &self.0.rssi)
+            .field("bitfield", &self.0._bitfield_1)
+            .finish()
+    }
+}
+impl PartialEq for StaInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.mac == other.0.mac
+            && self.0.rssi == other.0.rssi
+            && self.0._bitfield_1 == other.0._bitfield_1
+    }
+}
+impl Eq for StaInfo {}
 
 /// The radio metadata header of the received packet, which is the common header
 /// at the beginning of all RX callback buffers in promiscuous mode.
