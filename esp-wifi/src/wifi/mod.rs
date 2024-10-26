@@ -2238,25 +2238,33 @@ fn convert_ap_info(record: &include::wifi_ap_record_t) -> AccessPointInfo {
 
 /// List of stations associated with the Soft-AP.
 /// These stations have not necessarily authenticated.
+// 15 is the largest maximum length among all the devices.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StaList(pub heapless::Vec<StaInfo, 15>);
 impl StaList {
     /// Get STAs associated with soft-AP
     pub fn get_sta_list() -> Result<Self, WifiError> {
+        // Max length of the list varies among devices so don't refer to the number
+        // directly.
+
+        let empty_list = core::array::from_fn(|_| wifi_sta_info_t {
+            mac: Default::default(),
+            rssi: Default::default(),
+            _bitfield_align_1: Default::default(),
+            _bitfield_1: Default::default(),
+        });
+
         let mut list = wifi_sta_list_t {
-            sta: [wifi_sta_info_t {
-                mac: Default::default(),
-                rssi: Default::default(),
-                _bitfield_align_1: Default::default(),
-                _bitfield_1: Default::default(),
-            }; 15],
-            num: 15,
+            sta: empty_list,
+            num: empty_list.len() as _,
         };
         unsafe { esp_wifi_result!(esp_wifi_ap_get_sta_list(&mut list)) }?;
         Ok(Self(
-            // The `.min(15)` means this will not panic.
-            heapless::Vec::from_slice(&list.sta.map(StaInfo)[0..(list.num as usize).min(15)])
-                .unwrap(),
+            // The `.min(..)` means this will not panic.
+            heapless::Vec::from_slice(
+                &list.sta.map(StaInfo)[0..(list.num as usize).min(empty_list.len())],
+            )
+            .unwrap(),
         ))
     }
 }
